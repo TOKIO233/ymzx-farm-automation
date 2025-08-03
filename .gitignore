@@ -1,0 +1,133 @@
+# 元梦之星农场自动化项目 - Git忽略文件
+
+# ==================== 敏感信息保护 ====================
+# API密钥和配置文件
+*.key
+*.secret
+api_keys.txt
+config.ini
+.env
+.env.local
+.env.production
+.env.staging
+
+# 个人配置和私人信息
+personal_config.txt
+private_*.txt
+user_credentials.txt
+
+# ==================== 日志和临时文件 ====================
+# 日志文件
+*.log
+logs/
+*.log.*
+
+# 临时文件
+*.tmp
+*.temp
+temp/
+tmp/
+
+# 缓存文件
+*.cache
+cache/
+__pycache__/
+*.pyc
+*.pyo
+
+# ==================== 开发工具生成的文件 ====================
+# IDE配置文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ==================== 系统文件 ====================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+
+# ==================== 项目特定文件 ====================
+# 可能包含设备特定信息的校准文件
+movement_calibration_personal.txt
+device_specific_*.txt
+
+# 包含实际屏幕录制数据的文件（可能暴露游戏账号信息）
+screen_recordings/
+recordings/
+*.mp4
+*.avi
+
+# 备份文件
+*.bak
+*.backup
+backup_*/
+
+# 测试输出文件
+test_output/
+debug_*.txt
+
+# ==================== 可执行文件 ====================
+# 编译后的可执行文件
+*.exe
+*.app
+*.deb
+*.rpm
+
+# 确保保留的重要文件（注释形式说明）
+# 以下文件应该被包含在版本控制中：
+# - move_debugger.py (核心调试工具)
+# - auto_game.sh (移动端执行脚本)
+# - config_commands.txt (示例配置文件)
+# - README.md (项目说明文档)
+# - CLAUDE.md (AI助手指导文档)
+
+# ==================== 未来扩展保护 ====================
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 证书文件
+*.pem
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# 二进制文件
+*.bin
+*.dat

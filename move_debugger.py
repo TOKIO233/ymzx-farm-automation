@@ -914,30 +914,30 @@ class TouchEventRecorder:
             device = self.working_touch_device
             print(f"使用已找到的触摸设备: {device}")
 
-        print("即将显示原始触摸事件代码...")
-        print("请在手机屏幕上进行触摸操作")
-        print("按 Ctrl+C 停止显示")
-        print("\n事件代码说明:")
-        print("  EV_ABS (0003): 绝对坐标事件")
-        print("    ABS_MT_POSITION_X (0035): 多点触控X坐标")
-        print("    ABS_MT_POSITION_Y (0036): 多点触控Y坐标")
-        print("    ABS_X (0000): 单点触控X坐标")
-        print("    ABS_Y (0001): 单点触控Y坐标")
-        print("  EV_KEY (0001): 按键事件")
-        print("    BTN_TOUCH (014a): 触摸按键")
-        print("  数值说明: 按下=1, 抬起=0, 坐标=实际像素值")
+        print("=" * 70)
+        print("📱 触摸事件原理说明:")
+        print("• 单次点击会产生多个事件：按下→坐标→抬起→同步")
+        print("• 触摸传感器分辨率高于屏幕分辨率，需要坐标转换")
+        print("• SYN_REPORT 表示一组事件结束")
+        print("• 你的屏幕: 1220x2712，触摸传感器: 约4000x8000 (高精度)")
+        print("=" * 70)
+        print("⏹️  按 Ctrl+C 停止监听\n")
 
         try:
             command = f"adb shell getevent {device}"
-            print(f"\n执行命令: {command}")
             process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE, text=True, bufsize=1)
 
-            print("✓ 开始显示原始触摸事件代码...")
-            print("🔍 原始事件格式: 设备路径: 事件类型 事件代码 事件值")
-            print("-" * 60)
-
             event_count = 0
+            gesture_count = 0
+            touch_active = False
+            current_x = 0
+            current_y = 0
+            
+            print("✓ 开始监听触摸事件...")
+            print("🎯 手势分析模式 - 清晰显示每个完整手势")
+            print()
+
             while True:
                 line = process.stdout.readline()
                 if not line:
@@ -950,57 +950,88 @@ class TouchEventRecorder:
                     event_count += 1
                     raw_line = line.strip()
                     
-                    # 解析并显示事件详情
+                    # 解析事件数据
                     event_data = self.parse_event_line(raw_line)
                     if event_data:
-                        # 显示原始行
-                        print(f"🔍 原始: {raw_line}")
-                        
-                        # 显示解析结果
                         event_type = event_data['type']
                         event_code = event_data['code']
                         event_value = event_data['value']
                         
-                        # 事件类型解释
-                        type_names = {
-                            0: 'EV_SYN', 1: 'EV_KEY', 2: 'EV_REL', 3: 'EV_ABS',
-                            4: 'EV_MSC', 5: 'EV_SW'
-                        }
-                        type_name = type_names.get(event_type, f'TYPE_{event_type:04x}')
+                        # 解释不同类型的事件
+                        explanation = ""
+                        importance = "  "
                         
-                        # 事件代码解释
                         if event_type == 3:  # EV_ABS
-                            abs_codes = {
-                                0x00: 'ABS_X', 0x01: 'ABS_Y',
-                                0x35: 'ABS_MT_POSITION_X', 0x36: 'ABS_MT_POSITION_Y',
-                                0x39: 'ABS_MT_TRACKING_ID', 0x3a: 'ABS_MT_PRESSURE'
-                            }
-                            code_name = abs_codes.get(event_code, f'ABS_0x{event_code:02x}')
-                        elif event_type == 1:  # EV_KEY
-                            key_codes = {
-                                0x14a: 'BTN_TOUCH', 0x110: 'BTN_LEFT', 0x111: 'BTN_RIGHT'
-                            }
-                            code_name = key_codes.get(event_code, f'KEY_0x{event_code:02x}')
-                        else:
-                            code_name = f'CODE_0x{event_code:02x}'
-                        
-                        print(f"📱 解析: {type_name}: {code_name} = {event_value}")
-                        
-                        # 特殊值解释
-                        if event_type == 1 and event_code == 0x14a:  # BTN_TOUCH
-                            action = "按下" if event_value == 1 else "抬起" if event_value == 0 else f"值{event_value}"
-                            print(f"   👆 触摸动作: {action}")
-                        elif event_type == 3 and event_code in [0x00, 0x35]:  # X坐标
-                            print(f"   📍 X坐标: {event_value} (原始触摸传感器值)")
-                        elif event_type == 3 and event_code in [0x01, 0x36]:  # Y坐标
-                            print(f"   📍 Y坐标: {event_value} (原始触摸传感器值)")
+                            if event_code == 0x39:  # ABS_MT_TRACKING_ID
+                                if event_value != 0xffffffff and event_value != -1:
+                                    explanation = f"🟢 触摸开始 (追踪ID: {event_value})"
+                                    touch_active = True
+                                    gesture_count += 1
+                                    importance = "★★"
+                                    print(f"\n┌{'─' * 65}┐")
+                                    print(f"│ 🎯 手势 #{gesture_count:2d} 开始                                            │")
+                                    print(f"├{'─' * 65}┤")
+                                else:
+                                    explanation = "🔴 触摸结束 (释放追踪ID)"
+                                    touch_active = False
+                                    importance = "★★"
+                            elif event_code == 0x35:  # ABS_MT_POSITION_X
+                                current_x = event_value
+                                explanation = f"📍 X坐标: {event_value:5d} (传感器原始值)"
+                                importance = "★ "
+                            elif event_code == 0x36:  # ABS_MT_POSITION_Y
+                                current_y = event_value
+                                explanation = f"📍 Y坐标: {event_value:5d} (传感器原始值)"
+                                importance = "★ "
+                            elif event_code == 0x14a:  # BTN_TOUCH
+                                if event_value == 1:
+                                    explanation = "👆 物理按下检测"
+                                    importance = "★ "
+                                elif event_value == 0:
+                                    explanation = "🖐️ 物理抬起检测"
+                                    importance = "★ "
+                        elif event_type == 0 and event_code == 0:  # SYN_REPORT
+                            explanation = "⚡ 同步标记 (本组事件完成)"
+                            importance = "★★"
                             
-                        print("-" * 40)
+                            # 如果有坐标信息，显示转换结果
+                            if current_x > 0 and current_y > 0:
+                                # 简单的坐标转换示例 (具体转换需要设备校准)
+                                # 假设传感器范围是 0-4095 x 0-8191
+                                screen_x = int(current_x * 1220 / 4095) if current_x <= 4095 else int(current_x / 3.36)
+                                screen_y = int(current_y * 2712 / 8191) if current_y <= 8191 else int(current_y / 3.02)
+                                explanation += f" → 屏幕坐标: ({screen_x}, {screen_y})"
+                        
+                        # 显示事件信息
+                        status = "🟢 活跃" if touch_active else "⚪ 空闲"
+                        timestamp = f"[{event_count:3d}]"
+                        
+                        # 格式化原始事件数据
+                        hex_type = f"{event_type:04x}"
+                        hex_code = f"{event_code:04x}"
+                        hex_value = f"{event_value:08x}"
+                        
+                        print(f"│ {timestamp} {importance} {status} │ {hex_type}:{hex_code}={hex_value} │ {explanation:<25} │")
+                        
+                        # 在手势完成后添加清晰的分隔
+                        if event_type == 0 and event_code == 0 and not touch_active:
+                            print(f"└{'─' * 65}┘")
+                            print(f"  ✓ 手势 #{gesture_count} 完成")
+                            print()
+                            current_x = 0
+                            current_y = 0
 
         except KeyboardInterrupt:
-            print(f"\n⏹️ 停止显示 (共显示了 {event_count} 个事件)")
+            print(f"\n✅ 监听完成:")
+            print(f"   • 总事件数: {event_count}")
+            print(f"   • 手势数量: {gesture_count}")
+            print(f"   • 平均每手势: {event_count//max(gesture_count,1)} 个事件")
+            print(f"\n📊 统计分析:")
+            print(f"   • 每个手势通常包含: 追踪开始→坐标更新→同步→追踪结束")
+            print(f"   • 坐标范围大于屏幕分辨率是正常现象（高精度触摸传感器）")
+            print(f"   • 实际使用时需要进行坐标转换映射到屏幕坐标")
         except Exception as e:
-            print(f"❌ 显示原始事件失败: {e}")
+            print(f"❌ 监听过程出错: {e}")
         finally:
             if 'process' in locals():
                 process.terminate()

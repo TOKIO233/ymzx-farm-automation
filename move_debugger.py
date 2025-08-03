@@ -401,12 +401,13 @@ class TouchEventRecorder:
             print("        触摸参数记录器")
             print("="*50)
             print("1. 查找触摸设备")
-            print("2. 开始记录触摸事件")
-            print("3. 手动记录坐标 (备选方案)")
-            print("4. 查看已记录的命令")
-            print("5. 保存命令到文件")
-            print("6. 清空记录")
-            print("7. 测试生成的命令")
+            print("2. 显示原始触摸事件代码 (调试用)")
+            print("3. 开始记录触摸事件")
+            print("4. 手动记录坐标 (备选方案)")
+            print("5. 查看已记录的命令")
+            print("6. 保存命令到文件")
+            print("7. 清空记录")
+            print("8. 测试生成的命令")
             print("Q. 返回主菜单")
 
             choice = input("\n请选择操作: ").strip().upper()
@@ -416,16 +417,18 @@ class TouchEventRecorder:
             elif choice == '1':
                 self.find_touch_device()
             elif choice == '2':
-                self.start_touch_recording()
+                self.show_raw_touch_events()
             elif choice == '3':
-                self.manual_coordinate_recording()
+                self.start_touch_recording()
             elif choice == '4':
-                self.show_recorded_commands()
+                self.manual_coordinate_recording()
             elif choice == '5':
-                self.save_commands_to_file()
+                self.show_recorded_commands()
             elif choice == '6':
-                self.clear_records()
+                self.save_commands_to_file()
             elif choice == '7':
+                self.clear_records()
+            elif choice == '8':
                 self.test_generated_commands()
             else:
                 print("❌ 无效选择，请重新输入")
@@ -543,6 +546,14 @@ class TouchEventRecorder:
             device = self.working_touch_device
             print(f"使用已找到的触摸设备: {device}")
 
+        # 获取屏幕分辨率用于坐标转换
+        screen_width, screen_height = get_screen_resolution()
+        if screen_width and screen_height:
+            print(f"✓ 屏幕分辨率: {screen_width}x{screen_height}")
+            print(f"✓ 坐标转换规则: 屏幕X=原始Y, 屏幕Y={screen_height}-原始X")
+        else:
+            print("⚠️ 无法获取屏幕分辨率，将使用默认转换")
+
         print("即将开始监听触摸事件...")
         print("请在手机屏幕上进行滑动或点击操作")
         print("按 Ctrl+C 停止记录")
@@ -598,9 +609,10 @@ class TouchEventRecorder:
                 # 显示原始事件数据（调试用）
                 if line.strip():
                     event_count += 1
-                    if event_count <= 5:  # 只显示前5个事件作为调试
+                    # 显示更多原始事件用于调试
+                    if event_count <= 20:  # 显示前20个事件作为调试
                         print(f"🔍 原始事件: {line.strip()}")
-                    elif event_count == 6:
+                    elif event_count == 21:
                         print("🔍 (后续事件将在后台处理...)")
 
                     # 解析事件行
@@ -660,6 +672,27 @@ class TouchEventRecorder:
 
     def process_touch_event(self, event, current_touch):
         """处理单个触摸事件"""
+        # 显示原始触摸事件代码（调试用）
+        if event['type'] in [1, 3]:  # 只显示关键事件
+            event_type_names = {1: 'EV_KEY', 3: 'EV_ABS'}
+            type_name = event_type_names.get(event['type'], f'TYPE_{event["type"]}')
+            
+            # 详细的事件代码解释
+            abs_codes = {
+                0x00: 'ABS_X', 0x01: 'ABS_Y',
+                0x35: 'ABS_MT_POSITION_X', 0x36: 'ABS_MT_POSITION_Y',
+                0x39: 'ABS_MT_TRACKING_ID', 0x3a: 'ABS_MT_PRESSURE'
+            }
+            key_codes = {
+                0x14a: 'BTN_TOUCH', 0x110: 'BTN_LEFT', 0x111: 'BTN_RIGHT'
+            }
+            
+            if event['type'] == 3:  # EV_ABS
+                code_name = abs_codes.get(event['code'], f'ABS_0x{event["code"]:02x}')
+                print(f"🔍 {type_name}: {code_name} = {event['value']} (原始值)")
+            elif event['type'] == 1:  # EV_KEY
+                code_name = key_codes.get(event['code'], f'KEY_0x{event["code"]:02x}')
+                print(f"🔍 {type_name}: {code_name} = {event['value']}")
         # EV_ABS = 3, EV_KEY = 1
         if event['type'] == 3:  # EV_ABS (绝对坐标事件)
             # 多点触控坐标
@@ -736,15 +769,21 @@ class TouchEventRecorder:
         print(f"   原始起始坐标: ({raw_start_x}, {raw_start_y})")
         print(f"   原始结束坐标: ({raw_end_x}, {raw_end_y})")
 
-        # 坐标转换：屏幕X = 原始Y坐标，屏幕Y = 1080 - 原始X坐标
+        # 坐标转换：动态获取屏幕分辨率进行转换
+        screen_width, screen_height = get_screen_resolution()
+        if not screen_width or not screen_height:
+            print("⚠️ 无法获取屏幕分辨率，使用默认转换规律")
+            screen_width, screen_height = 1080, 1920  # 默认值
+        
+        # 坐标转换：屏幕X = 原始Y坐标，屏幕Y = 屏幕高度 - 原始X坐标
         start_x = raw_start_y
-        start_y = 1080 - raw_start_x
+        start_y = screen_height - raw_start_x
         end_x = raw_end_y
-        end_y = 1080 - raw_end_x
+        end_y = screen_height - raw_end_x
 
         print(f"   转换后起始坐标: ({start_x}, {start_y}) [已转换]")
         print(f"   转换后结束坐标: ({end_x}, {end_y}) [已转换]")
-        print(f"   转换规律: 屏幕X=原始Y, 屏幕Y=1080-原始X")
+        print(f"   转换规律: 屏幕X=原始Y, 屏幕Y={screen_height}-原始X")
 
         # 计算移动距离（使用转换后坐标）
         distance = ((end_x - start_x) ** 2 + (end_y - start_y) ** 2) ** 0.5
@@ -859,6 +898,112 @@ class TouchEventRecorder:
 
         except ValueError:
             print("❌ 请输入有效的数字")
+
+    def show_raw_touch_events(self):
+        """显示原始触摸事件代码 (调试用)"""
+        print("\n=== 显示原始触摸事件代码 (调试用) ===")
+        
+        # 检查是否已找到工作设备
+        if not self.working_touch_device:
+            print("⚠️ 未找到工作触摸设备，正在查找...")
+            device = self.find_touch_device()
+            if not device:
+                print("❌ 无法找到可用的触摸设备")
+                return
+        else:
+            device = self.working_touch_device
+            print(f"使用已找到的触摸设备: {device}")
+
+        print("即将显示原始触摸事件代码...")
+        print("请在手机屏幕上进行触摸操作")
+        print("按 Ctrl+C 停止显示")
+        print("\n事件代码说明:")
+        print("  EV_ABS (0003): 绝对坐标事件")
+        print("    ABS_MT_POSITION_X (0035): 多点触控X坐标")
+        print("    ABS_MT_POSITION_Y (0036): 多点触控Y坐标")
+        print("    ABS_X (0000): 单点触控X坐标")
+        print("    ABS_Y (0001): 单点触控Y坐标")
+        print("  EV_KEY (0001): 按键事件")
+        print("    BTN_TOUCH (014a): 触摸按键")
+        print("  数值说明: 按下=1, 抬起=0, 坐标=实际像素值")
+
+        try:
+            command = f"adb shell getevent {device}"
+            print(f"\n执行命令: {command}")
+            process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, text=True, bufsize=1)
+
+            print("✓ 开始显示原始触摸事件代码...")
+            print("🔍 原始事件格式: 设备路径: 事件类型 事件代码 事件值")
+            print("-" * 60)
+
+            event_count = 0
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    error_line = process.stderr.readline()
+                    if error_line:
+                        print(f"⚠️ 错误: {error_line.strip()}")
+                    break
+
+                if line.strip():
+                    event_count += 1
+                    raw_line = line.strip()
+                    
+                    # 解析并显示事件详情
+                    event_data = self.parse_event_line(raw_line)
+                    if event_data:
+                        # 显示原始行
+                        print(f"🔍 原始: {raw_line}")
+                        
+                        # 显示解析结果
+                        event_type = event_data['type']
+                        event_code = event_data['code']
+                        event_value = event_data['value']
+                        
+                        # 事件类型解释
+                        type_names = {
+                            0: 'EV_SYN', 1: 'EV_KEY', 2: 'EV_REL', 3: 'EV_ABS',
+                            4: 'EV_MSC', 5: 'EV_SW'
+                        }
+                        type_name = type_names.get(event_type, f'TYPE_{event_type:04x}')
+                        
+                        # 事件代码解释
+                        if event_type == 3:  # EV_ABS
+                            abs_codes = {
+                                0x00: 'ABS_X', 0x01: 'ABS_Y',
+                                0x35: 'ABS_MT_POSITION_X', 0x36: 'ABS_MT_POSITION_Y',
+                                0x39: 'ABS_MT_TRACKING_ID', 0x3a: 'ABS_MT_PRESSURE'
+                            }
+                            code_name = abs_codes.get(event_code, f'ABS_0x{event_code:02x}')
+                        elif event_type == 1:  # EV_KEY
+                            key_codes = {
+                                0x14a: 'BTN_TOUCH', 0x110: 'BTN_LEFT', 0x111: 'BTN_RIGHT'
+                            }
+                            code_name = key_codes.get(event_code, f'KEY_0x{event_code:02x}')
+                        else:
+                            code_name = f'CODE_0x{event_code:02x}'
+                        
+                        print(f"📱 解析: {type_name}: {code_name} = {event_value}")
+                        
+                        # 特殊值解释
+                        if event_type == 1 and event_code == 0x14a:  # BTN_TOUCH
+                            action = "按下" if event_value == 1 else "抬起" if event_value == 0 else f"值{event_value}"
+                            print(f"   👆 触摸动作: {action}")
+                        elif event_type == 3 and event_code in [0x00, 0x35]:  # X坐标
+                            print(f"   📍 X坐标: {event_value} (原始触摸传感器值)")
+                        elif event_type == 3 and event_code in [0x01, 0x36]:  # Y坐标
+                            print(f"   📍 Y坐标: {event_value} (原始触摸传感器值)")
+                            
+                        print("-" * 40)
+
+        except KeyboardInterrupt:
+            print(f"\n⏹️ 停止显示 (共显示了 {event_count} 个事件)")
+        except Exception as e:
+            print(f"❌ 显示原始事件失败: {e}")
+        finally:
+            if 'process' in locals():
+                process.terminate()
 
     def show_recorded_commands(self):
         """显示已记录的命令"""

@@ -397,17 +397,20 @@ class TouchEventRecorder:
     def start_recording_menu(self):
         """触摸参数记录器主菜单"""
         while True:
-            print("\n" + "="*50)
-            print("        触摸参数记录器")
-            print("="*50)
+            print("\n" + "="*60)
+            print("              触摸参数记录器")
+            print("="*60)
             print("1. 查找触摸设备")
-            print("2. 显示原始触摸事件代码 (调试用)")
-            print("3. 开始记录触摸事件")
-            print("4. 手动记录坐标 (备选方案)")
-            print("5. 查看已记录的命令")
-            print("6. 保存命令到文件")
-            print("7. 清空记录")
-            print("8. 测试生成的命令")
+            print("2. 真实屏幕坐标监控 🎯 (getRawX/Y，最准确)")
+            print("3. 简单坐标监控 📍 (推荐)")
+            print("4. 增强触摸事件监控 v2.0 🔥")
+            print("5. 显示原始触摸事件代码 (调试用)")
+            print("6. 开始记录触摸事件")
+            print("7. 手动记录坐标 (备选方案)")
+            print("8. 查看已记录的命令")
+            print("9. 保存命令到文件")
+            print("0. 清空记录")
+            print("A. 测试生成的命令")
             print("Q. 返回主菜单")
 
             choice = input("\n请选择操作: ").strip().upper()
@@ -417,18 +420,24 @@ class TouchEventRecorder:
             elif choice == '1':
                 self.find_touch_device()
             elif choice == '2':
-                self.show_raw_touch_events()
+                self.raw_coordinate_monitor()
             elif choice == '3':
-                self.start_touch_recording()
+                self.simple_coordinate_monitor()
             elif choice == '4':
-                self.manual_coordinate_recording()
+                self.show_enhanced_touch_events()
             elif choice == '5':
-                self.show_recorded_commands()
+                self.show_raw_touch_events()
             elif choice == '6':
-                self.save_commands_to_file()
+                self.start_touch_recording()
             elif choice == '7':
-                self.clear_records()
+                self.manual_coordinate_recording()
             elif choice == '8':
+                self.show_recorded_commands()
+            elif choice == '9':
+                self.save_commands_to_file()
+            elif choice == '0':
+                self.clear_records()
+            elif choice == 'A':
                 self.test_generated_commands()
             else:
                 print("❌ 无效选择，请重新输入")
@@ -898,6 +907,425 @@ class TouchEventRecorder:
 
         except ValueError:
             print("❌ 请输入有效的数字")
+
+    def get_screen_info(self):
+        """获取屏幕分辨率信息"""
+        try:
+            result = subprocess.run(
+                ['adb', 'shell', 'wm', 'size'],
+                capture_output=True, text=True, timeout=10
+            )
+            
+            if result.returncode == 0:
+                # 解析输出如: Physical size: 1220x2712
+                for line in result.stdout.split('\n'):
+                    if 'size:' in line:
+                        size_str = line.split('size:')[1].strip()
+                        if 'x' in size_str:
+                            width, height = map(int, size_str.split('x'))
+                            return {'width': width, 'height': height}
+            
+            # 如果获取失败，返回默认值
+            return {'width': 1220, 'height': 2712}
+            
+        except Exception:
+            # 获取失败时返回默认分辨率
+            return {'width': 1220, 'height': 2712}
+
+    def get_touch_device_info(self, device_path):
+        """获取触摸设备的详细信息和坐标范围"""
+        try:
+            result = subprocess.run(
+                ['adb', 'shell', 'getevent', '-p', device_path],
+                capture_output=True, text=True, timeout=10
+            )
+            
+            if result.returncode != 0:
+                return None
+                
+            info = {'device': device_path, 'axes': {}}
+            
+            for line in result.stdout.split('\n'):
+                line = line.strip()
+                if 'ABS_MT_POSITION_X' in line or 'ABS_X' in line:
+                    # 解析 X 轴范围 例如: ABS_X : value 0, min 0, max 4095
+                    if 'max' in line:
+                        try:
+                            max_val = int(line.split('max')[1].strip().split()[0])
+                            info['axes']['max_x'] = max_val
+                        except:
+                            pass
+                elif 'ABS_MT_POSITION_Y' in line or 'ABS_Y' in line:
+                    # 解析 Y 轴范围
+                    if 'max' in line:
+                        try:
+                            max_val = int(line.split('max')[1].strip().split()[0])
+                            info['axes']['max_y'] = max_val
+                        except:
+                            pass
+            
+            return info if info['axes'] else None
+            
+        except Exception as e:
+            print(f"获取设备信息失败: {e}")
+            return None
+
+    def raw_coordinate_monitor(self):
+        """使用Android应用获取真实屏幕坐标（getRawX/getRawY）"""
+        print("\n📱 真实屏幕坐标监控")
+        print("💡 使用Android应用的getRawX()/getRawY()方法获取精确坐标")
+        print("📋 需要先安装TouchMonitor应用并开启悬浮窗权限\n")
+        
+        # 检查应用是否已安装
+        try:
+            result = subprocess.run(
+                ['adb', 'shell', 'pm', 'list', 'packages', 'com.touchmonitor.app'],
+                capture_output=True, text=True, timeout=10
+            )
+            
+            if 'com.touchmonitor.app' not in result.stdout:
+                print("❌ TouchMonitor应用未安装")
+                print("\n📦 安装步骤：")
+                print("1. 编译TouchMonitor文件夹中的Android应用")
+                print("2. 安装到手机: adb install TouchMonitor.apk")
+                print("3. 打开应用并开启悬浮窗权限")
+                return
+            else:
+                print("✅ TouchMonitor应用已安装")
+        except Exception as e:
+            print(f"⚠️ 检查应用状态失败: {e}")
+        
+        # 启动监控服务
+        print("🚀 启动坐标监控服务...")
+        try:
+            # 启动TouchMonitor应用
+            subprocess.run([
+                'adb', 'shell', 'am', 'start', 
+                '-n', 'com.touchmonitor.app/.MainActivity'
+            ], timeout=10)
+            
+            # 启动监控服务
+            subprocess.run([
+                'adb', 'shell', 'am', 'startservice',
+                '-n', 'com.touchmonitor.app/.TouchOverlayService'
+            ], timeout=10)
+            
+            print("✅ 监控服务已启动")
+        except Exception as e:
+            print(f"❌ 启动服务失败: {e}")
+            return
+        
+        print("\n📊 开始监听坐标数据...")
+        print("🎯 在设备上触摸屏幕查看坐标")
+        print("按 Ctrl+C 停止监控\n")
+        print("="*70)
+        print(f"{'手势':<8} {'屏幕坐标':<15} {'动作':<8} {'说明':<20}")
+        print("-"*70)
+        
+        try:
+            # 监听logcat中的触摸坐标
+            process = subprocess.Popen([
+                'adb', 'logcat', '-s', 'TouchCoords:D', '--format=brief'
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+            
+            gesture_count = 0
+            
+            for line in process.stdout:
+                if 'TouchCoords' in line and 'TOUCH_' in line:
+                    try:
+                        # 解析日志格式: D/TouchCoords: TOUCH_DOWN:(123,456)
+                        if 'TOUCH_DOWN:' in line:
+                            coords_str = line.split('TOUCH_DOWN:')[1].strip()
+                            coords = coords_str.replace('(', '').replace(')', '').split(',')
+                            x, y = int(float(coords[0])), int(float(coords[1]))
+                            gesture_count += 1
+                            print(f"  #{gesture_count:<5} ({x:4d},{y:4d})     DOWN     🟢 开始触摸")
+                            
+                        elif 'TOUCH_MOVE:' in line:
+                            coords_str = line.split('TOUCH_MOVE:')[1].strip()
+                            coords = coords_str.replace('(', '').replace(')', '').split(',')
+                            x, y = int(float(coords[0])), int(float(coords[1]))
+                            print(f"  #{gesture_count:<5} ({x:4d},{y:4d})     MOVE     📍 移动中")
+                            
+                        elif 'TOUCH_UP:' in line:
+                            coords_str = line.split('TOUCH_UP:')[1].strip()
+                            coords = coords_str.replace('(', '').replace(')', '').split(',')
+                            x, y = int(float(coords[0])), int(float(coords[1]))
+                            print(f"  #{gesture_count:<5} ({x:4d},{y:4d})     UP       🔴 结束触摸\n")
+                            
+                    except Exception as e:
+                        print(f"⚠️ 解析坐标失败: {line.strip()} - {e}")
+                        
+        except KeyboardInterrupt:
+            print(f"\n\n⏹️ 监控已停止")
+            print(f"📊 总共记录了 {gesture_count} 个触摸手势")
+            
+            # 停止监控服务
+            try:
+                subprocess.run([
+                    'adb', 'shell', 'am', 'stopservice',
+                    '-n', 'com.touchmonitor.app/.TouchOverlayService'
+                ], timeout=5)
+                print("✅ 监控服务已停止")
+            except:
+                pass
+                
+            print("\n💡 使用说明：")
+            print("   • 这些是真实的屏幕坐标，来自getRawX()/getRawY()")
+            print("   • 坐标可直接用于: adb shell input tap x y")
+            print("   • 无需坐标转换，精度最高")
+            
+        except Exception as e:
+            print(f"\n❌ 监控失败: {e}")
+        finally:
+            try:
+                process.terminate()
+            except:
+                pass
+
+    def simple_coordinate_monitor(self):
+        """简单坐标监控 - 直接显示屏幕坐标"""
+        print("🔄 正在启动简单坐标监控...")
+        print("\n📍 简单坐标监控")
+        print("💡 提示：这个功能将显示转换后的屏幕坐标，类似开发者选项中的指针位置")
+        print("按 Ctrl+C 停止监控\n")
+        
+        if not self.working_touch_device:
+            print("❌ 触摸设备未找到，请先运行'查找触摸设备'功能")
+            return
+        
+        # 获取设备信息
+        device_info = self.get_touch_device_info(self.working_touch_device)
+        screen_info = self.get_screen_info()
+        
+        # 设置触摸传感器范围 - 根据实际设备调整
+        if device_info and device_info['axes']:
+            max_x = device_info['axes'].get('max_x', 4095)
+            max_y = device_info['axes'].get('max_y', 8191)
+        else:
+            # 常见的触摸传感器范围（需要根据设备调整）
+            max_x = 4095
+            max_y = 8191
+        
+        print(f"🔍 监控设备: {self.working_touch_device}")
+        print(f"📺 屏幕分辨率: {screen_info['width']}×{screen_info['height']}")
+        print(f"📏 传感器范围: X(0-{max_x}), Y(0-{max_y})")
+        print(f"🔄 转换比例: X={screen_info['width']}/{max_x}={screen_info['width']/max_x:.3f}, Y={screen_info['height']}/{max_y}={screen_info['height']/max_y:.3f}")
+        print("="*80)
+        print(f"{'手势':<8} {'传感器坐标':<15} {'屏幕坐标':<12} {'状态':<8} {'说明'}")
+        print("-"*80)
+        
+        try:
+            process = subprocess.Popen(
+                ['adb', 'shell', 'getevent', self.working_touch_device],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1
+            )
+            
+            gesture_count = 0
+            current_x = current_y = 0
+            touch_active = False
+            last_screen_x = last_screen_y = 0
+            
+            for line in process.stdout:
+                if line.strip():
+                    raw_line = line.strip()
+                    event_data = self.parse_event_line(raw_line)
+                    
+                    if event_data:
+                        event_type = event_data['type']
+                        event_code = event_data['code']
+                        event_value = event_data['value']
+                        
+                        # 只关注关键事件
+                        if event_type == 3:  # EV_ABS
+                            if event_code == 0x39:  # ABS_MT_TRACKING_ID
+                                if event_value != 0xffffffff and event_value != -1:
+                                    gesture_count += 1
+                                    touch_active = True
+                                    print(f"\n🟢 手势 #{gesture_count} 开始")
+                                else:
+                                    touch_active = False
+                                    if last_screen_x and last_screen_y:
+                                        print(f"🔴 手势 #{gesture_count} 结束: 屏幕坐标({last_screen_x}, {last_screen_y})")
+                                    current_x = current_y = 0
+                            elif event_code == 0x35:  # ABS_MT_POSITION_X
+                                current_x = event_value
+                            elif event_code == 0x36:  # ABS_MT_POSITION_Y
+                                current_y = event_value
+                        elif event_type == 0 and event_code == 0:  # SYN_REPORT
+                            # 每次同步事件时显示坐标
+                            if touch_active and current_x > 0 and current_y > 0:
+                                # 精确的坐标转换
+                                screen_x = int((current_x / max_x) * screen_info['width'])
+                                screen_y = int((current_y / max_y) * screen_info['height'])
+                                
+                                # 限制在屏幕范围内
+                                screen_x = max(0, min(screen_x, screen_info['width'] - 1))
+                                screen_y = max(0, min(screen_y, screen_info['height'] - 1))
+                                
+                                # 保存最后的屏幕坐标
+                                last_screen_x = screen_x
+                                last_screen_y = screen_y
+                                
+                                status = "按下中"
+                                print(f"  #{gesture_count:<5} ({current_x:4d},{current_y:5d})   ({screen_x:4d},{screen_y:4d})  {status:<8} 实时坐标")
+                        
+        except KeyboardInterrupt:
+            print(f"\n\n⏹️ 监控已停止")
+            print(f"📊 总共记录了 {gesture_count} 个触摸手势")
+            print("\n💡 使用说明：")
+            print(f"   • 传感器坐标: 硬件原始值，范围 X(0-{max_x}), Y(0-{max_y})")
+            print(f"   • 屏幕坐标: 转换后的值，范围 X(0-{screen_info['width']-1}), Y(0-{screen_info['height']-1})")
+            print("   • 屏幕坐标可直接用于 adb shell input tap x y")
+            print("\n🔧 如果坐标仍然不准确，请检查传感器范围设置")
+        except Exception as e:
+            print(f"\n❌ 监控失败: {e}")
+        finally:
+            try:
+                process.terminate()
+            except:
+                pass
+
+    def show_enhanced_touch_events(self):
+        """显示增强版触摸事件监控 (v2.0)"""
+        print("\n📱 增强触摸事件监控 v2.0")
+        print("🔧 特性：事件分组、坐标转换、类型标识")
+        print("按 Ctrl+C 停止监控\n")
+        
+        if not self.working_touch_device:
+            print("❌ 触摸设备未找到，请先运行'查找触摸设备'功能")
+            return
+        
+        # 获取设备信息和坐标范围
+        device_info = self.get_touch_device_info(self.working_touch_device)
+        screen_info = self.get_screen_info()
+        
+        print(f"🔍 监控设备: {self.working_touch_device}")
+        
+        if device_info and device_info['axes']:
+            max_x = device_info['axes'].get('max_x', 'unknown')
+            max_y = device_info['axes'].get('max_y', 'unknown')
+            print(f"📏 触摸传感器范围: X(0-{max_x}), Y(0-{max_y})")
+        else:
+            print("⚠️ 无法获取传感器范围，将使用估算转换")
+            max_x = max_y = 4095  # 默认值
+        
+        if screen_info:
+            print(f"📺 屏幕分辨率: {screen_info['width']}×{screen_info['height']}")
+        
+        print("="*90)
+        print(f"{'事件组':<6} {'原始事件':<30} {'类型':<12} {'转换坐标':<15} {'说明':<20}")
+        print("-"*90)
+        
+        try:
+            process = subprocess.Popen(
+                ['adb', 'shell', 'getevent', self.working_touch_device],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1
+            )
+            
+            event_count = 0
+            gesture_count = 0
+            current_x = current_y = 0
+            
+            for line in process.stdout:
+                if line.strip():
+                    event_count += 1
+                    raw_line = line.strip()
+                    
+                    event_data = self.parse_event_line(raw_line)
+                    if event_data:
+                        event_type = event_data['type']
+                        event_code = event_data['code']
+                        event_value = event_data['value']
+                        
+                        event_info = {
+                            'raw': raw_line,
+                            'type': event_type,
+                            'code': event_code,
+                            'value': event_value,
+                            'description': '',
+                            'importance': '  ',
+                            'converted_coords': ''
+                        }
+                        
+                        # 解析事件类型
+                        if event_type == 3:  # EV_ABS
+                            if event_code == 0x39:  # ABS_MT_TRACKING_ID
+                                if event_value != 0xffffffff and event_value != -1:
+                                    gesture_count += 1
+                                    event_info['description'] = f"触摸开始 (ID:{event_value})"
+                                    event_info['importance'] = "🟢"
+                                    print(f"\n┌{'─' * 88}┐")
+                                    print(f"│ 🎯 触摸手势 #{gesture_count} 开始{' ' * 58}│")
+                                    print(f"├{'─' * 88}┤")
+                                else:
+                                    event_info['description'] = "触摸结束"
+                                    event_info['importance'] = "🔴"
+                            elif event_code == 0x35:  # ABS_MT_POSITION_X
+                                current_x = event_value
+                                if screen_info and max_x:
+                                    screen_x = int((event_value / max_x) * screen_info['width'])
+                                    event_info['converted_coords'] = f"X:{screen_x}"
+                                event_info['description'] = f"X坐标 {event_value}"
+                                event_info['importance'] = "📍"
+                            elif event_code == 0x36:  # ABS_MT_POSITION_Y
+                                current_y = event_value
+                                if screen_info and max_y:
+                                    screen_y = int((event_value / max_y) * screen_info['height'])
+                                    event_info['converted_coords'] = f"Y:{screen_y}"
+                                event_info['description'] = f"Y坐标 {event_value}"
+                                event_info['importance'] = "📍"
+                        elif event_type == 1:  # EV_KEY
+                            if event_code == 0x14a:  # BTN_TOUCH
+                                if event_value == 1:
+                                    event_info['description'] = "按下检测"
+                                    event_info['importance'] = "👆"
+                                else:
+                                    event_info['description'] = "抬起检测"
+                                    event_info['importance'] = "🖐️"
+                        elif event_type == 0 and event_code == 0:  # SYN_REPORT
+                            event_info['description'] = "事件组结束"
+                            event_info['importance'] = "⚡"
+                            
+                            # 显示完整的坐标转换
+                            if current_x and current_y and screen_info:
+                                screen_x = int((current_x / max_x) * screen_info['width'])
+                                screen_y = int((current_y / max_y) * screen_info['height'])
+                                event_info['converted_coords'] = f"({screen_x},{screen_y})"
+                        
+                        # 显示事件
+                        print(f"{event_info['importance']:<6} {event_info['raw']:<30} "
+                              f"{event_info['description']:<12} {event_info['converted_coords']:<15} "
+                              f"{event_info['description']}")
+                        
+                        # 如果是同步事件，显示分隔符
+                        if event_type == 0 and event_code == 0:
+                            if current_x and current_y and screen_info:
+                                screen_x = int((current_x / max_x) * screen_info['width'])
+                                screen_y = int((current_y / max_y) * screen_info['height'])
+                                print(f"    💡 最终屏幕坐标: ({screen_x}, {screen_y})")
+                                print(f"    📐 传感器原始值: ({current_x}, {current_y})")
+                            print(f"└{'─' * 88}┘\n")
+                            current_x = current_y = 0
+                        
+        except KeyboardInterrupt:
+            print("\n\n⏹️ 监控已停止")
+            print(f"📊 统计：记录 {event_count} 个事件，{gesture_count} 个触摸手势")
+            if device_info and device_info['axes']:
+                print(f"📏 设备传感器范围: X(0-{device_info['axes'].get('max_x', 'unknown')}), Y(0-{device_info['axes'].get('max_y', 'unknown')})")
+        except Exception as e:
+            print(f"\n❌ 监控失败: {e}")
+        finally:
+            try:
+                process.terminate()
+            except:
+                pass
 
     def show_raw_touch_events(self):
         """显示原始触摸事件代码 (调试用)"""

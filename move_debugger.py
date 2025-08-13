@@ -16,7 +16,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('move_debugger.log'),
+        logging.FileHandler('move_debugger.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -516,6 +516,8 @@ class TouchEventRecorder:
         # 从device_state获取触摸设备信息
         self.working_touch_device = device_state.touch_device
         self.process = None
+        # 添加时间跟踪属性，用于计算命令间隔
+        self.previous_command_time = None
 
     def start_recording_menu(self):
         """触摸参数记录器主菜单"""
@@ -562,6 +564,11 @@ class TouchEventRecorder:
         device_path = self.working_touch_device['device']
         print(f"使用已找到的触摸设备: {device_path}")
         print("请在手机屏幕上进行滑动或点击操作 (按 Ctrl+C 停止记录)")
+        
+        # 重置时间跟踪，开始新的记录会话
+        self.previous_command_time = None
+        print("⏰ 时间跟踪已重置，开始记录...")
+        
         try:
             self.recording = True
             self.listen_touch_events(device_path)
@@ -665,6 +672,13 @@ class TouchEventRecorder:
         duration = int((touch_data['end_time'] - touch_data['start_time']) * 1000)
         distance = ((end_x - start_x) ** 2 + (end_y - start_y) ** 2) ** 0.5
 
+        # 计算与前一个命令的时间间隔
+        current_time = touch_data['end_time']
+        interval_before = None
+        if self.previous_command_time is not None:
+            interval_before = int((current_time - self.previous_command_time) * 1000)  # 转换为毫秒
+        self.previous_command_time = current_time
+
         if distance < 20:
             command = f"{start_x},{start_y}"
             command_type = "点击"
@@ -672,7 +686,19 @@ class TouchEventRecorder:
             command = f"SWIPE:{start_x},{start_y},{end_x},{end_y},{duration}"
             command_type = "滑动"
         print(f"生成{command_type}命令: {command}")
-        self.recorded_commands.append({'type': command_type, 'command': command, 'start_pos': (start_x, start_y), 'end_pos': (end_x, end_y), 'duration': duration, 'distance': distance, 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        
+        # 记录命令时包含时间间隔信息
+        command_record = {
+            'type': command_type, 
+            'command': command, 
+            'start_pos': (start_x, start_y), 
+            'end_pos': (end_x, end_y), 
+            'duration': duration, 
+            'distance': distance, 
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'interval_before': interval_before  # 添加间隔时间字段
+        }
+        self.recorded_commands.append(command_record)
 
     def manual_coordinate_recording(self):
         """手动记录坐标的备选方案"""
@@ -747,14 +773,29 @@ class TouchEventRecorder:
         try:
             with open(self.output_file, 'w', encoding='utf-8') as f:
                 f.write(f"# 触摸命令记录 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                commands_only = [record['command'] for record in self.recorded_commands]
-                f.write(" ".join(commands_only) + "\n\n")
+                
+                # 构建包含间隔时间的命令序列
+                command_sequence = []
+                for i, record in enumerate(self.recorded_commands):
+                    # 如果不是第一个命令且有间隔时间，插入间隔
+                    if i > 0 and 'interval_before' in record and record['interval_before'] is not None:
+                        # 设置合理的间隔范围，避免异常长间隔
+                        interval = record['interval_before']
+                        if interval > 10000:  # 超过10秒的间隔认为是异常，使用默认间隔
+                            interval = int(DEFAULT_INTERVAL * 1000)
+                        command_sequence.append(f"{interval}ms")
+                    command_sequence.append(record['command'])
+                
+                f.write(" ".join(command_sequence) + "\n\n")
+                
+                # 写入详细注释
                 for i, record in enumerate(self.recorded_commands, 1):
-                    f.write(f"# [{i}] {record['type']}: {record['command']}\n")
-            json_file = self.output_file.replace('.txt', '.json')
-            with open(json_file, 'w', encoding='utf-8') as f:
-                json.dump(self.recorded_commands, f, ensure_ascii=False, indent=2)
-            print(f"命令已保存到: {self.output_file} 和 {json_file}")
+                    interval_info = ""
+                    if 'interval_before' in record and record['interval_before'] is not None:
+                        interval_info = f" (间隔:{record['interval_before']}ms)"
+                    f.write(f"# [{i}] {record['type']}: {record['command']}{interval_info}\n")
+                    
+            print(f"命令已保存到: {self.output_file}")
         except Exception as e:
             print(f"❌ 保存文件失败: {e}")
 
@@ -774,7 +815,31 @@ class TouchEventRecorder:
             return
         if input(f"确定要测试 {len(self.recorded_commands)} 条命令吗？(y/n): ").lower() != 'y':
             return
+            
+        print("开始执行命令序列...")
         for i, record in enumerate(self.recorded_commands, 1):
+            # 如果不是第一个命令，先等待间隔时间
+            if i > 1:  # 第一个命令前不需要等待
+                prev_record = self.recorded_commands[i-2]  # 获取前一个命令记录
+                
+                # 使用实际记录的间隔时间
+                if 'interval_before' in record and record['interval_before'] is not None:
+                    interval_sec = record['interval_before'] / 1000.0  # 转换为秒
+                    # 设置合理的间隔范围
+                    if interval_sec > 10:  # 超过10秒使用默认间隔
+                        interval_sec = DEFAULT_INTERVAL
+                        print(f"  ⚠️ 间隔时间过长({record['interval_before']}ms)，使用默认间隔")
+                    elif interval_sec < 0.1:  # 小于100ms使用最小间隔
+                        interval_sec = 0.1
+                        print(f"  ⚠️ 间隔时间过短({record['interval_before']}ms)，使用100ms")
+                    
+                    print(f"  ⏳ 等待间隔: {int(interval_sec * 1000)}ms")
+                    time.sleep(interval_sec)
+                else:
+                    # 对于手动记录的命令或没有间隔信息的命令，使用默认间隔
+                    print(f"  ⏳ 使用默认间隔: {int(DEFAULT_INTERVAL * 1000)}ms")
+                    time.sleep(DEFAULT_INTERVAL)
+            
             print(f"[{i}/{len(self.recorded_commands)}] 执行: {record['command']}")
             success = False
             if record['type'] == '点击':
@@ -784,11 +849,11 @@ class TouchEventRecorder:
                 params = record['command'][6:].split(',')
                 x1, y1, x2, y2, duration = map(int, params)
                 success = self.adb_executor.swipe_screen(x1, y1, x2, y2, duration)
+            
             if not success:
                 print("  ❌ 执行失败，测试中止")
                 break
-            if i < len(self.recorded_commands):
-                time.sleep(DEFAULT_INTERVAL)
+                
         print("命令测试完成")
 
 def execute_unified_commands_with_components(adb_executor: ADBExecutor):

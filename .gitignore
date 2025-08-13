@@ -15,6 +15,8 @@ config.ini
 personal_config.txt
 private_*.txt
 user_credentials.txt
+.pytest_cache/
+.claude/
 
 # ==================== 日志和临时文件 ====================
 # 日志文件

@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import time
 import subprocess
 import logging
 import re
-import json
+
 from datetime import datetime
+from typing import Any, TypedDict, Union
 
 # 元梦之星农场自动化脚本 - PC端调试器
 # 版本: v2.4.1 (触摸事件修复版)
@@ -54,14 +57,14 @@ class DeviceState:
     负责在程序启动时一次性获取并存储所有设备信息
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """初始化设备状态对象"""
-        self.is_valid = False           # 设备状态是否有效
-        self.device_info = None         # 设备基本信息
-        self.screen_width = None        # 屏幕宽度
-        self.screen_height = None       # 屏幕高度
-        self.screen_orientation = None  # 屏幕方向
-        self.touch_device = None        # 触摸设备信息
+        self.is_valid: bool = False           # 设备状态是否有效
+        self.device_info: str | None = None         # 设备基本信息
+        self.screen_width: int | None = None        # 屏幕宽度
+        self.screen_height: int | None = None       # 屏幕高度
+        self.screen_orientation: int | None = None  # 屏幕方向
+        self.touch_device: dict[str, Union[int, str]] | None = None        # 触摸设备信息
         # touch_device格式: {'device': '/dev/input/eventX', 'max_x': 4095, 'max_y': 4095}
     
     def initialize_all(self) -> bool:
@@ -98,7 +101,10 @@ class DeviceState:
             self.is_valid = True
             logger.info("设备状态初始化成功")
             logger.info(f"屏幕: {self.screen_width}x{self.screen_height}")
-            logger.info(f"触摸设备: {self.touch_device['device']}")
+            if isinstance(self.touch_device, dict):
+                device_path = self.touch_device.get('device')
+                if isinstance(device_path, str):
+                    logger.info(f"触摸设备: {device_path}")
             return True
             
         except Exception as e:
@@ -137,7 +143,7 @@ class DeviceState:
             logger.error(f"检查ADB连接时出错: {e}")
             return False
     
-    def _get_screen_resolution(self) -> tuple:
+    def _get_screen_resolution(self) -> tuple[int, int] | None:
         """获取屏幕分辨率（私有方法）"""
         logger.info("获取屏幕分辨率...")
         try:
@@ -153,7 +159,11 @@ class DeviceState:
                 
                 # 解析输出，格式通常为 "Physical size: 1080x2340"
                 size_part = output.split(':')[-1].strip()
-                width, height = map(int, size_part.split('x'))
+                parts = size_part.split('x')
+                if len(parts) != 2:
+                    logger.error(f"无法解析屏幕分辨率: {output}")
+                    return None
+                width, height = map(int, parts)
                 logger.info(f"屏幕分辨率: {width}x{height}")
                 return width, height
             else:
@@ -196,7 +206,7 @@ class DeviceState:
             logger.warning(f"获取屏幕方向时出错: {e}")
             return 1  # 默认横屏
     
-    def _find_touch_device(self) -> dict:
+    def _find_touch_device(self) -> dict[str, Union[int, str]] | None:
         """查找触摸设备（私有方法）"""
         logger.info("开始查找触摸设备...")
         
@@ -234,7 +244,7 @@ class DeviceState:
             logger.error(f"查找触摸设备时出错: {e}")
             return None
     
-    def _split_device_blocks(self, output):
+    def _split_device_blocks(self, output: str) -> list[str]:
         """将getevent -p -l的输出按设备分割成独立的块"""
         blocks = []
         current_block = []
@@ -256,7 +266,7 @@ class DeviceState:
         
         return blocks
     
-    def _parse_device_block(self, device_block):
+    def _parse_device_block(self, device_block: str) -> dict[str, Union[int, str]] | None:
         """解析单个设备块，提取设备路径和坐标信息"""
         device_match = re.search(r'(/dev/input/event\d+)', device_block)
         if not device_match:
@@ -284,7 +294,7 @@ class ADBExecutor:
     依赖DeviceState，不再进行重复的连接检查
     """
     
-    def __init__(self, device_state: DeviceState):
+    def __init__(self, device_state: DeviceState) -> None:
         """初始化ADB执行器"""
         self.device_state = device_state
         if not device_state.is_valid:
@@ -397,7 +407,7 @@ class ADBExecutor:
 
 # ==================== 工具函数 ====================
 
-def convert_touch_coordinates(raw_x, raw_y, max_x, max_y, screen_width, screen_height, orientation=1):
+def convert_touch_coordinates(raw_x: int, raw_y: int, max_x: int, max_y: int, screen_width: int, screen_height: int, orientation: int = 1) -> tuple[int, int]:
     """支持屏幕旋转的坐标转换函数"""
     x_norm = raw_x / max_x
     y_norm = raw_y / max_y
@@ -428,12 +438,12 @@ class SystemComponents:
     遵循SOLID原则中的依赖倒置和单一职责原则
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """初始化组件容器"""
-        self.device_state = None
-        self.adb_executor = None
-        self.touch_recorder = None
-        self.is_initialized = False
+        self.device_state: DeviceState | None = None
+        self.adb_executor: ADBExecutor | None = None
+        self.touch_recorder: TouchEventRecorder | None = None
+        self.is_initialized: bool = False
     
     def initialize_system(self) -> bool:
         """
@@ -477,19 +487,19 @@ class SystemComponents:
     
     def get_device_state(self) -> DeviceState:
         """获取设备状态实例"""
-        if not self.is_initialized:
+        if not self.is_initialized or self.device_state is None:
             raise RuntimeError("系统未初始化，请先调用initialize_system()")
         return self.device_state
     
     def get_adb_executor(self) -> ADBExecutor:
         """获取ADB执行器实例"""
-        if not self.is_initialized:
+        if not self.is_initialized or self.adb_executor is None:
             raise RuntimeError("系统未初始化，请先调用initialize_system()")
         return self.adb_executor
     
-    def get_touch_recorder(self) -> 'TouchEventRecorder':
+    def get_touch_recorder(self) -> TouchEventRecorder:
         """获取触摸事件记录器实例"""
-        if not self.is_initialized:
+        if not self.is_initialized or self.touch_recorder is None:
             raise RuntimeError("系统未初始化，请先调用initialize_system()")
         return self.touch_recorder
 
@@ -508,18 +518,18 @@ class TouchEventRecorder:
         if not device_state.is_valid:
             raise ValueError("DeviceState必须已成功初始化")
         
-        self.device_state = device_state
-        self.adb_executor = adb_executor
-        self.recording = False
-        self.recorded_commands = []
-        self.output_file = "touch_commands.txt"
+        self.device_state: DeviceState = device_state
+        self.adb_executor: ADBExecutor = adb_executor
+        self.recording: bool = False
+        self.recorded_commands: list[RecordedCommand] = []
+        self.output_file: str = "touch_commands.txt"
         # 从device_state获取触摸设备信息
-        self.working_touch_device = device_state.touch_device
-        self.process = None
+        self.working_touch_device: dict[str, Union[int, str]] | None = device_state.touch_device
+        self.process: subprocess.Popen[str] | None = None
         # 添加时间跟踪属性，用于计算命令间隔
-        self.previous_command_time = None
+        self.previous_command_time: float | None = None
 
-    def start_recording_menu(self):
+    def start_recording_menu(self) -> None:
         """触摸参数记录器主菜单"""
         while True:
             print("\n" + "="*60 + "\n              触摸参数记录器\n" + "="*60)
@@ -537,23 +547,29 @@ class TouchEventRecorder:
                     '4': self.manual_coordinate_recording, '5': self.show_recorded_commands, '6': self.save_commands_to_file,
                     '7': self.clear_records, '8': self.test_generated_commands}
             if choice == 'Q': break
-            if choice in menu: menu[choice]()
+            if choice in menu: 
+                _ = menu[choice]()
             else: print("❌ 无效选择，请重新输入")
 
-    def find_and_set_touch_device(self):
+    def find_and_set_touch_device(self) -> str | None:
         """查找并设置工作触摸设备"""
         print("\n=== 查找触摸设备 ===")
         # 现在从注入的device_state获取触摸设备信息
         if self.device_state.touch_device:
             self.working_touch_device = self.device_state.touch_device
-            print(f"已设置工作触摸设备: {self.working_touch_device['device']}")
-            print(f"坐标范围 - X: 0-{self.working_touch_device['max_x']}, Y: 0-{self.working_touch_device['max_y']}")
-            return self.working_touch_device['device']
+            device_path = self.working_touch_device['device']
+            if isinstance(device_path, str):
+                print(f"已设置工作触摸设备: {device_path}")
+                print(f"坐标范围 - X: 0-{self.working_touch_device['max_x']}, Y: 0-{self.working_touch_device['max_y']}")
+                return device_path
+            else:
+                print("❌ 设备路径类型错误")
+                return None
         else:
             print("❌ 设备状态中未找到可用的触摸设备")
             return None
 
-    def start_touch_recording(self):
+    def start_touch_recording(self) -> None:
         """开始记录触摸事件"""
         print("\n=== 触摸事件记录 ===")
         if not self.working_touch_device:
@@ -561,7 +577,11 @@ class TouchEventRecorder:
             if not self.find_and_set_touch_device():
                 print("❌ 无法找到可用的触摸设备，请使用手动记录功能")
                 return
-        device_path = self.working_touch_device['device']
+        device_path_val = self.working_touch_device.get('device') if isinstance(self.working_touch_device, dict) else None
+        if not isinstance(device_path_val, str):
+            print("❌ 触摸设备路径无效")
+            return
+        device_path = device_path_val
         print(f"使用已找到的触摸设备: {device_path}")
         print("请在手机屏幕上进行滑动或点击操作 (按 Ctrl+C 停止记录)")
         
@@ -579,21 +599,27 @@ class TouchEventRecorder:
         finally:
             self.recording = False
             if self.process:
-                self.process.terminate()
+                try:
+                    self.process.terminate()
+                except Exception:
+                    pass
                 self.process = None
 
-    def listen_touch_events(self, device_path):
+    def listen_touch_events(self, device_path: str):
         """监听触摸事件"""
         # 使用注入的adb_executor执行getevent命令
         command = f"getevent {device_path}"
         self.process = subprocess.Popen(
-            ["adb", "shell", command], 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE, 
-            text=True, 
+            ["adb", "shell", command],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
             bufsize=1
         )
-        current_touch = {'is_touching': False}
+        if self.process.stdout is None:
+            print("❌ 无法读取触摸事件流")
+            return
+        current_touch: dict[str, Any] = {'is_touching': False}
         while self.recording:
             line = self.process.stdout.readline()
             if not line: break
@@ -603,7 +629,7 @@ class TouchEventRecorder:
                     self.process_touch_event(event_data, current_touch)
         # Cleanup is handled in start_touch_recording's finally block
 
-    def parse_event_line(self, line):
+    def parse_event_line(self, line: str) -> dict[str, int] | None:
         """解析getevent输出行"""
         try:
             if line.startswith('['):
@@ -615,7 +641,7 @@ class TouchEventRecorder:
             return None
         return None
 
-    def process_touch_event(self, event, current_touch):
+    def process_touch_event(self, event: dict[str, int], current_touch: dict[str, Any]) -> None:
         """处理单个触摸事件 - 修复版v2.4.1"""
         if event['type'] == 3:  # EV_ABS
             if event['code'] == 0x35:  # ABS_MT_POSITION_X
@@ -655,7 +681,7 @@ class TouchEventRecorder:
                 current_touch.clear()
                 current_touch['is_touching'] = False
 
-    def generate_touch_command(self, touch_data):
+    def generate_touch_command(self, touch_data: dict[str, Any]) -> None:
         """根据触摸数据生成命令"""
         required_keys = ['start_x', 'start_y', 'end_x', 'end_y', 'start_time', 'end_time']
         if not all(key in touch_data for key in required_keys): return
@@ -663,14 +689,28 @@ class TouchEventRecorder:
         # 从注入的device_state获取屏幕信息
         screen_width = self.device_state.screen_width
         screen_height = self.device_state.screen_height
-        if not screen_width or not self.working_touch_device:
+        orientation = self.device_state.screen_orientation if isinstance(self.device_state.screen_orientation, int) else 1
+        if screen_width is None or screen_height is None or not isinstance(self.working_touch_device, dict):
             print("❌ 无法获取屏幕或触摸设备信息，无法生成命令")
             return
+        max_x_val = self.working_touch_device.get('max_x')
+        max_y_val = self.working_touch_device.get('max_y')
+        if not isinstance(max_x_val, int) or not isinstance(max_y_val, int):
+            print("❌ 触摸设备坐标范围无效")
+            return
 
-        start_x, start_y = convert_touch_coordinates(touch_data['start_x'], touch_data['start_y'], self.working_touch_device['max_x'], self.working_touch_device['max_y'], screen_width, screen_height, self.device_state.screen_orientation)
-        end_x, end_y = convert_touch_coordinates(touch_data['end_x'], touch_data['end_y'], self.working_touch_device['max_x'], self.working_touch_device['max_y'], screen_width, screen_height, self.device_state.screen_orientation)
+        start_x, start_y = convert_touch_coordinates(
+            int(touch_data['start_x']), int(touch_data['start_y']),
+            int(max_x_val), int(max_y_val),
+            int(screen_width), int(screen_height), int(orientation)
+        )
+        end_x, end_y = convert_touch_coordinates(
+            int(touch_data['end_x']), int(touch_data['end_y']),
+            int(max_x_val), int(max_y_val),
+            int(screen_width), int(screen_height), int(orientation)
+        )
         duration = int((touch_data['end_time'] - touch_data['start_time']) * 1000)
-        distance = ((end_x - start_x) ** 2 + (end_y - start_y) ** 2) ** 0.5
+        distance = int(((end_x - start_x) ** 2 + (end_y - start_y) ** 2) ** 0.5)
 
         # 计算与前一个命令的时间间隔
         current_time = touch_data['end_time']
@@ -688,7 +728,7 @@ class TouchEventRecorder:
         print(f"生成{command_type}命令: {command}")
         
         # 记录命令时包含时间间隔信息
-        command_record = {
+        command_record: RecordedCommand = {
             'type': command_type, 
             'command': command, 
             'start_pos': (start_x, start_y), 
@@ -700,7 +740,7 @@ class TouchEventRecorder:
         }
         self.recorded_commands.append(command_record)
 
-    def manual_coordinate_recording(self):
+    def manual_coordinate_recording(self) -> None:
         """手动记录坐标的备选方案"""
         print("\n=== 手动坐标记录 ===")
         while True:
@@ -723,22 +763,33 @@ class TouchEventRecorder:
             elif choice == '3': break
             else: print("❌ 无效选择")
 
-    def show_raw_touch_events(self):
+    def show_raw_touch_events(self) -> None:
         """显示原始触摸事件代码 (调试用)"""
         print("\n=== 显示原始触摸事件代码 (调试用) ===")
         if not self.working_touch_device:
             if not self.find_and_set_touch_device(): return
-        device_path = self.working_touch_device['device']
+        device_path_val = self.working_touch_device.get('device') if isinstance(self.working_touch_device, dict) else None
+        if not isinstance(device_path_val, str):
+            print("❌ 触摸设备路径无效")
+            return
+        device_path = device_path_val
         # 从注入的device_state获取屏幕信息
         screen_width = self.device_state.screen_width
         screen_height = self.device_state.screen_height
-        if not screen_width: return
+        if screen_width is None or screen_height is None:
+            return
         print("=" * 80)
-        print(f"📱 监控设备: {device_path} | 传感器: {self.working_touch_device['max_x']}x{self.working_touch_device['max_y']} | 屏幕: {screen_width}x{screen_height}")
+        if self.working_touch_device:
+            print(f"📱 监控设备: {device_path} | 传感器: {self.working_touch_device['max_x']}x{self.working_touch_device['max_y']} | 屏幕: {screen_width}x{screen_height}")
+        else:
+            print(f"📱 监控设备: {device_path} | 屏幕: {screen_width}x{screen_height}")
         print("=" * 80 + "\n⏹️  按 Ctrl+C 停止监听\n")
         try:
             command = f"adb shell getevent {device_path}"
             process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+            if process.stdout is None:
+                print("❌ 无法读取事件输出")
+                return
             current_x, current_y = 0, 0
             while True:
                 line = process.stdout.readline()
@@ -749,23 +800,40 @@ class TouchEventRecorder:
                         if event['type'] == 3 and event['code'] == 0x35: current_x = event['value']
                         elif event['type'] == 3 and event['code'] == 0x36: current_y = event['value']
                         elif event['type'] == 0 and event['code'] == 0 and current_x > 0:
-                            sx, sy = convert_touch_coordinates(current_x, current_y, self.working_touch_device['max_x'], self.working_touch_device['max_y'], screen_width, screen_height, self.device_state.screen_orientation)
+                            wd = self.working_touch_device if isinstance(self.working_touch_device, dict) else None
+                            if not wd:
+                                break
+                            max_x = wd.get('max_x'); max_y = wd.get('max_y')
+                            if not isinstance(max_x, int) or not isinstance(max_y, int):
+                                break
+                            orient = self.device_state.screen_orientation if isinstance(self.device_state.screen_orientation, int) else 1
+                            sx, sy = convert_touch_coordinates(
+                                int(current_x), int(current_y),
+                                int(max_x), int(max_y),
+                                int(screen_width), int(screen_height),
+                                int(orient)
+                            )
                             print(f"原始: ({current_x:5d}, {current_y:5d}) -> 屏幕: ({sx:4d}, {sy:4d})")
         except KeyboardInterrupt:
             print("监听完成")
         finally:
-            if process: process.terminate()
+            if self.process is not None:
+                try:
+                    self.process.terminate()
+                    self.process = None
+                except Exception:
+                    pass
 
-    def show_recorded_commands(self):
+    def show_recorded_commands(self) -> None:
         """显示已记录的命令"""
         if not self.recorded_commands:
             print("❌ 暂无记录的命令")
             return
         print(f"\n=== 已记录的命令 (共 {len(self.recorded_commands)} 条) ===")
         for i, record in enumerate(self.recorded_commands, 1):
-            print(f"[{i}] {record['type']}: {record['command']}")
+            print(f"[{i}] {record.get('type', '未知')}: {record.get('command', '未知命令')}")
 
-    def save_commands_to_file(self):
+    def save_commands_to_file(self) -> None:
         """保存命令到文件"""
         if not self.recorded_commands:
             print("❌ 没有可保存的命令")
@@ -775,16 +843,20 @@ class TouchEventRecorder:
                 f.write(f"# 触摸命令记录 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 
                 # 构建包含间隔时间的命令序列
-                command_sequence = []
+                command_sequence: list[str] = []
                 for i, record in enumerate(self.recorded_commands):
                     # 如果不是第一个命令且有间隔时间，插入间隔
-                    if i > 0 and 'interval_before' in record and record['interval_before'] is not None:
+                    interval_before = record.get('interval_before')
+                    if i > 0 and interval_before is not None and isinstance(interval_before, (int, float)):
                         # 设置合理的间隔范围，避免异常长间隔
-                        interval = record['interval_before']
+                        interval = int(interval_before)
                         if interval > 10000:  # 超过10秒的间隔认为是异常，使用默认间隔
                             interval = int(DEFAULT_INTERVAL * 1000)
                         command_sequence.append(f"{interval}ms")
-                    command_sequence.append(record['command'])
+                    
+                    command = record.get('command')
+                    if isinstance(command, str):
+                        command_sequence.append(command)
                 
                 f.write(" ".join(command_sequence) + "\n\n")
                 
@@ -793,13 +865,13 @@ class TouchEventRecorder:
                     interval_info = ""
                     if 'interval_before' in record and record['interval_before'] is not None:
                         interval_info = f" (间隔:{record['interval_before']}ms)"
-                    f.write(f"# [{i}] {record['type']}: {record['command']}{interval_info}\n")
+                    f.write(f"# [{i}] {record.get('type', '未知')}: {record.get('command', '未知命令')}{interval_info}\n")
                     
             print(f"命令已保存到: {self.output_file}")
         except Exception as e:
             print(f"❌ 保存文件失败: {e}")
 
-    def clear_records(self):
+    def clear_records(self) -> None:
         """清空记录"""
         if not self.recorded_commands:
             print("❌ 没有可清空的记录")
@@ -808,7 +880,7 @@ class TouchEventRecorder:
             self.recorded_commands.clear()
             print("记录已清空")
 
-    def test_generated_commands(self):
+    def test_generated_commands(self) -> None:
         """测试生成的命令"""
         if not self.recorded_commands:
             print("❌ 没有可测试的命令")
@@ -824,7 +896,11 @@ class TouchEventRecorder:
                 
                 # 使用实际记录的间隔时间
                 if 'interval_before' in record and record['interval_before'] is not None:
-                    interval_sec = record['interval_before'] / 1000.0  # 转换为秒
+                    interval_before = record['interval_before']
+                    if isinstance(interval_before, (int, float)):
+                        interval_sec = interval_before / 1000.0  # 转换为秒
+                    else:
+                        interval_sec = DEFAULT_INTERVAL
                     # 设置合理的间隔范围
                     if interval_sec > 10:  # 超过10秒使用默认间隔
                         interval_sec = DEFAULT_INTERVAL
@@ -840,13 +916,14 @@ class TouchEventRecorder:
                     print(f"  ⏳ 使用默认间隔: {int(DEFAULT_INTERVAL * 1000)}ms")
                     time.sleep(DEFAULT_INTERVAL)
             
-            print(f"[{i}/{len(self.recorded_commands)}] 执行: {record['command']}")
+            command_str = record.get('command', '')
+            print(f"[{i}/{len(self.recorded_commands)}] 执行: {command_str}")
             success = False
-            if record['type'] == '点击':
-                x, y = map(int, record['command'].split(','))
+            if record.get('type') == '点击' and isinstance(command_str, str):
+                x, y = map(int, command_str.split(','))
                 success = self.adb_executor.tap_screen(x, y)
-            else:
-                params = record['command'][6:].split(',')
+            elif isinstance(command_str, str) and command_str.startswith('滑动'):
+                params = command_str[6:].split(',')
                 x1, y1, x2, y2, duration = map(int, params)
                 success = self.adb_executor.swipe_screen(x1, y1, x2, y2, duration)
             
@@ -856,7 +933,23 @@ class TouchEventRecorder:
                 
         print("命令测试完成")
 
-def execute_unified_commands_with_components(adb_executor: ADBExecutor):
+class ActionPlanItem(TypedDict, total=False):
+    type: str
+    params: tuple[int, ...]
+    display: str
+    delay_after: float
+
+class RecordedCommand(TypedDict, total=False):
+    type: str
+    command: str
+    interval_before: float | None
+    timestamp: str
+    start_pos: tuple[int, int]
+    end_pos: tuple[int, int]
+    duration: int
+    distance: int
+
+def execute_unified_commands_with_components(adb_executor: ADBExecutor) -> None:
     """使用组件化架构的统一命令执行功能"""
     device_state = adb_executor.device_state
     screen_width = device_state.screen_width
@@ -920,12 +1013,12 @@ def execute_unified_commands_with_components(adb_executor: ADBExecutor):
             print("❌ 没有有效的命令，请重新输入")
             continue
             
-        plan_str = " → ".join([action['display'] for action in action_plan])
+        plan_str = " → ".join([str(action.get('display', '')) for action in action_plan])
         print(f"执行计划: {plan_str}")
         logger.info(f"开始执行统一命令序列: {command_input}")
         
         for i, action in enumerate(action_plan, 1):
-            print(f"执行: {action['display']}", end=" ")
+            print(f"执行: {action.get('display','')}", end=" ")
             success = False
             if action['type'] == 'move':
                 success = adb_executor.press_key(*action['params'], delay=KEY_INTERVAL)
@@ -939,7 +1032,7 @@ def execute_unified_commands_with_components(adb_executor: ADBExecutor):
                 print("❌ 失败")
                 break
             if i < len(action_plan):
-                time.sleep(action.get('delay_after', DEFAULT_INTERVAL))
+                time.sleep(float(action.get('delay_after', DEFAULT_INTERVAL)))
         print("命令序列执行完成！\n")
 
 
@@ -965,7 +1058,8 @@ if __name__ == "__main__":
     # 显示设备信息
     print("屏幕分辨率:", f"{device_state.screen_width}x{device_state.screen_height}")
     orientation_names = {0: '竖屏', 1: '横屏', 2: '倒竖屏', 3: '倒横屏'}
-    orientation_name = orientation_names.get(device_state.screen_orientation, f'未知({device_state.screen_orientation})')
+    orientation_key = device_state.screen_orientation if isinstance(device_state.screen_orientation, int) else -1
+    orientation_name = orientation_names.get(orientation_key, f'未知({orientation_key})')
     print("屏幕方向:", orientation_name)
 
     while True:
@@ -1003,9 +1097,12 @@ if __name__ == "__main__":
         elif choice == '4':
             print("\n=== 设备状态信息 ===")
             print(f"屏幕分辨率: {device_state.screen_width}x{device_state.screen_height}")
-            print(f"屏幕方向: {orientation_names.get(device_state.screen_orientation, '未知')}")
-            print(f"触摸设备: {device_state.touch_device['device'] if device_state.touch_device else '未找到'}")
-            if device_state.touch_device:
-                print(f"触摸坐标范围: X(0-{device_state.touch_device['max_x']}), Y(0-{device_state.touch_device['max_y']})")
+            orientation_key = device_state.screen_orientation if device_state.screen_orientation is not None else -1
+            print(f"屏幕方向: {orientation_names.get(orientation_key, '未知')}")
+            if isinstance(device_state.touch_device, dict) and isinstance(device_state.touch_device.get('device'), str):
+                print(f"触摸设备: {device_state.touch_device['device']}")
+                print(f"触摸坐标范围: X(0-{device_state.touch_device.get('max_x')}), Y(0-{device_state.touch_device.get('max_y')})")
+            else:
+                print("触摸设备: 未找到")
         else:
             print("❌ 无效选择，请重新输入")
